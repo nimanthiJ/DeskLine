@@ -1,0 +1,12 @@
+{
+  "name": "deskline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DeskLine support desk service",
+  "scripts": {
+    "seed": "npm --prefix api run seed",
+    "dev:api": "npm --prefix api run dev",
+    "dev:web": "npm --prefix web run dev",
+    "test": "npm --prefix api test"
+  }
+}
