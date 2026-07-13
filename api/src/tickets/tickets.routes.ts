@@ -6,13 +6,24 @@ import * as commentsRepository from '../comments/comments.repository';
 import * as usersRepository from '../users/users.repository';
 import {
   createTicketSchema,
+  listTicketsQuerySchema,
   ticketIdParamsSchema,
   updateStatusSchema,
 } from './tickets.schema';
 
 export async function ticketRoutes(app: FastifyInstance) {
-  app.get('/tickets', async () => {
-    return ticketsRepository.listTickets();
+  app.get('/tickets', async (request) => {
+    const query = listTicketsQuerySchema.parse(request.query);
+    const assigneeIds =
+      query.assigneeId
+        ?.filter((value): value is number => typeof value === 'number') ?? [];
+    const includeUnassigned = query.assigneeId?.includes('unassigned') ?? false;
+
+    return ticketsRepository.listTickets({
+      statuses: query.status,
+      assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
+      includeUnassigned,
+    });
   });
 
   app.get('/tickets/:id', async (request) => {

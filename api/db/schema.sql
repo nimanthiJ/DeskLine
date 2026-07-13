@@ -44,6 +44,9 @@ create trigger tickets_sync_timestamps
   for each row
   execute function sync_row_timestamps();
 
+create index idx_tickets_status on tickets (status);
+create index idx_tickets_assignee_id on tickets (assignee_id);
+
 create table comments (
   id           serial primary key,
   ticket_id    integer not null references tickets(id),

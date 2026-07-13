@@ -1,3 +1,5 @@
+import { computeSlaStatus, type SlaStatus } from './tickets/sla';
+
 export interface TicketRow {
   id: number;
   subject: string;
@@ -29,6 +31,7 @@ export interface TicketDto {
   assigneeId: number | null;
   assigneeName: string | null;
   slaHours: number;
+  slaStatus: SlaStatus;
   commentCount: number;
   createdAt: string;
   updatedAt: string;
@@ -58,6 +61,7 @@ export function toTicketDto(
     assigneeId: row.assignee_id,
     assigneeName,
     slaHours: row.sla_hours,
+    slaStatus: computeSlaStatus(row.status, row.created_at, row.sla_hours),
     commentCount,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),

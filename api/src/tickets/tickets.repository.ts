@@ -2,13 +2,44 @@ import { pool } from '../db';
 import { toTicketDto, type TicketDto, type TicketRow } from '../mappers';
 import * as usersRepository from '../users/users.repository';
 
-export async function listTickets(): Promise<TicketDto[]> {
+export interface ListTicketsFilter {
+  statuses?: string[];
+  assigneeIds?: number[];
+  includeUnassigned?: boolean;
+}
+
+export async function listTickets(filter: ListTicketsFilter = {}): Promise<TicketDto[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filter.statuses && filter.statuses.length > 0) {
+    params.push(filter.statuses);
+    conditions.push(`t.status = any($${params.length}::text[])`);
+  }
+
+  const assigneeParts: string[] = [];
+  if (filter.assigneeIds && filter.assigneeIds.length > 0) {
+    params.push(filter.assigneeIds);
+    assigneeParts.push(`t.assignee_id = any($${params.length}::int[])`);
+  }
+  if (filter.includeUnassigned) {
+    assigneeParts.push('t.assignee_id is null');
+  }
+  if (assigneeParts.length > 0) {
+    conditions.push(`(${assigneeParts.join(' or ')})`);
+  }
+
+  const where =
+    conditions.length > 0 ? `where ${conditions.join(' and ')}` : '';
+
   const { rows } = await pool.query(
     `select t.*, u.name as assignee_name,
             (select count(*) from comments c where c.ticket_id = t.id) as comment_count
        from tickets t
        left join users u on u.id = t.assignee_id
-      order by t.created_at desc`
+       ${where}
+      order by t.created_at desc`,
+    params
   );
 
   return rows.map((row) =>
