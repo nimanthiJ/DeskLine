@@ -1,23 +1,19 @@
 import { pool } from '../db';
 import { toTicketDto, type TicketDto, type TicketRow } from '../mappers';
 import * as usersRepository from '../users/users.repository';
-import * as commentsRepository from '../comments/comments.repository';
 
 export async function listTickets(): Promise<TicketDto[]> {
-  const { rows } = await pool.query<TicketRow>(
-    'select * from tickets order by created_at desc'
+  const { rows } = await pool.query(
+    `select t.*, u.name as assignee_name,
+            (select count(*) from comments c where c.ticket_id = t.id) as comment_count
+       from tickets t
+       left join users u on u.id = t.assignee_id
+      order by t.created_at desc`
   );
 
-  const result: TicketDto[] = [];
-  for (const row of rows) {
-    // look up assignee
-    const assigneeName = row.assignee_id
-      ? await usersRepository.findNameById(row.assignee_id)
-      : null;
-    const commentCount = await commentsRepository.countForTicket(row.id);
-    result.push(toTicketDto(row, assigneeName, commentCount));
-  }
-  return result;
+  return rows.map((row) =>
+    toTicketDto(row, row.assignee_name ?? null, Number(row.comment_count))
+  );
 }
 
 export async function getTicketById(id: number): Promise<TicketDto | null> {
@@ -57,13 +53,11 @@ export async function createTicket(input: CreateTicketInput): Promise<TicketDto>
 }
 
 export async function updateStatus(id: number, status: string): Promise<void> {
-  if (status === 'resolved') {
-    // mark resolved
-    await pool.query('update tickets set status = $1, resolved_at = now() where id = $2', [
-      status,
-      id,
-    ]);
-  } else {
-    await pool.query('update tickets set status = $1 where id = $2', [status, id]);
-  }
+  await pool.query(
+    `update tickets
+        set status = $1,
+            resolved_at = case when $1 = 'resolved' then now() else null end
+      where id = $2`,
+    [status, id]
+  );
 }

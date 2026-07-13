@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../src/server';
 import { pool } from '../src/db';
 import { ensureTestDatabase, resetDatabase } from './helpers';
@@ -26,6 +26,11 @@ describe('GET /tickets', () => {
     expect(res.statusCode).toBe(200);
     const tickets = res.json();
     expect(tickets).toHaveLength(3);
+    expect(tickets.map((t: { subject: string }) => t.subject)).toEqual([
+      'Unassigned question',
+      'Printer on fire',
+      'Slow reports page',
+    ]);
 
     const printer = tickets.find((t: any) => t.subject === 'Printer on fire');
     expect(printer).toMatchObject({
@@ -37,10 +42,32 @@ describe('GET /tickets', () => {
     });
     expect(printer.createdAt).toBeTypeOf('string');
 
+    const reports = tickets.find((t: any) => t.subject === 'Slow reports page');
+    expect(reports).toMatchObject({
+      status: 'in_progress',
+      priority: 'medium',
+      assigneeName: 'Grace Fixture',
+      commentCount: 1,
+      slaHours: 24,
+    });
+
     const unassigned = tickets.find((t: any) => t.subject === 'Unassigned question');
     expect(unassigned.assigneeId).toBeNull();
     expect(unassigned.assigneeName).toBeNull();
     expect(unassigned.commentCount).toBe(0);
+  });
+
+  it('loads the list without per-ticket follow-up queries', async () => {
+    const querySpy = vi.spyOn(pool, 'query');
+    querySpy.mockClear();
+
+    const res = await app.inject({ method: 'GET', url: '/tickets' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toHaveLength(3);
+    expect(querySpy).toHaveBeenCalledTimes(1);
+
+    querySpy.mockRestore();
   });
 });
 
@@ -102,6 +129,21 @@ describe('POST /tickets', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('Validation failed');
   });
+
+  it('rejects an unknown assigneeId with 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tickets',
+      payload: {
+        subject: 'Needs an agent',
+        description: 'Please assign someone who exists.',
+        assigneeId: 999999,
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'Unknown assignee 999999' });
+  });
 });
 
 describe('PATCH /tickets/:id/status', () => {
@@ -124,5 +166,46 @@ describe('PATCH /tickets/:id/status', () => {
     });
 
     expect(res.statusCode).toBe(400);
+  });
+
+  it('clears resolvedAt when a resolved ticket is reopened', async () => {
+    const resolved = await app.inject({
+      method: 'PATCH',
+      url: '/tickets/1/status',
+      payload: { status: 'resolved' },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json().resolvedAt).toBeTypeOf('string');
+
+    const reopened = await app.inject({
+      method: 'PATCH',
+      url: '/tickets/1/status',
+      payload: { status: 'open' },
+    });
+
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json()).toMatchObject({
+      status: 'open',
+      resolvedAt: null,
+    });
+  });
+
+  it('bumps updatedAt and preserves createdAt when status changes', async () => {
+    const before = await app.inject({ method: 'GET', url: '/tickets/1' });
+    expect(before.statusCode).toBe(200);
+    const { createdAt, updatedAt: previousUpdatedAt } = before.json();
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/tickets/1/status',
+      payload: { status: 'in_progress' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('in_progress');
+    expect(res.json().createdAt).toBe(createdAt);
+    expect(new Date(res.json().updatedAt).getTime()).toBeGreaterThan(
+      new Date(previousUpdatedAt).getTime()
+    );
   });
 });

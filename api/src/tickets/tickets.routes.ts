@@ -3,6 +3,7 @@ import { AppError } from '../errors';
 import { toCommentDto } from '../mappers';
 import * as ticketsRepository from './tickets.repository';
 import * as commentsRepository from '../comments/comments.repository';
+import * as usersRepository from '../users/users.repository';
 import {
   createTicketSchema,
   ticketIdParamsSchema,
@@ -26,6 +27,12 @@ export async function ticketRoutes(app: FastifyInstance) {
 
   app.post('/tickets', async (request, reply) => {
     const input = createTicketSchema.parse(request.body);
+    if (input.assigneeId !== null) {
+      const name = await usersRepository.findNameById(input.assigneeId);
+      if (!name) {
+        throw new AppError(400, `Unknown assignee ${input.assigneeId}`);
+      }
+    }
     const ticket = await ticketsRepository.createTicket(input);
     return reply.code(201).send(ticket);
   });
