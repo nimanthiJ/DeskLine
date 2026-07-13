@@ -11,11 +11,15 @@ export function TicketDetail({ id }: { id: number }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const ac = new AbortController();
     setTicket(null);
     setError(null);
-    request<TicketWithComments>(`/tickets/${id}`)
+    request<TicketWithComments>(`/tickets/${id}`, { signal: ac.signal })
       .then(setTicket)
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') setError(err.message);
+      });
+    return () => ac.abort();
   }, [id]);
 
   if (error) return <p className="error">{error}</p>;
