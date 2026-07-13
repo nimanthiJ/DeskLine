@@ -4,6 +4,22 @@ export const ticketIdParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
+const ticketStatusEnum = z.enum(['open', 'in_progress', 'resolved', 'closed']);
+
+function asOptionalArray<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((value) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    return Array.isArray(value) ? value : [value];
+  }, z.array(schema).optional());
+}
+
+export const listTicketsQuerySchema = z.object({
+  status: asOptionalArray(ticketStatusEnum),
+  assigneeId: asOptionalArray(
+    z.union([z.literal('unassigned'), z.coerce.number().int().positive()])
+  ),
+});
+
 export const createTicketSchema = z.object({
   subject: z.string().min(1).max(200),
   description: z.string().min(1),
@@ -13,5 +29,5 @@ export const createTicketSchema = z.object({
 });
 
 export const updateStatusSchema = z.object({
-  status: z.enum(['open', 'in_progress', 'resolved', 'closed']),
+  status: ticketStatusEnum,
 });

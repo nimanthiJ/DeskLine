@@ -69,6 +69,116 @@ describe('GET /tickets', () => {
 
     querySpy.mockRestore();
   });
+
+  it('includes slaStatus for each ticket', async () => {
+    const res = await app.inject({ method: 'GET', url: '/tickets' });
+
+    expect(res.statusCode).toBe(200);
+    const tickets = res.json();
+
+    // Printer: open, 4h SLA, created 3h ago → ~1h remaining → at_risk
+    expect(tickets.find((t: any) => t.subject === 'Printer on fire').slaStatus).toBe(
+      'at_risk'
+    );
+    // Slow reports: in_progress, 24h SLA, created 2 days ago → breached
+    expect(tickets.find((t: any) => t.subject === 'Slow reports page').slaStatus).toBe(
+      'breached'
+    );
+    // Unassigned: open, 8h SLA, created 1h ago → on_track
+    expect(tickets.find((t: any) => t.subject === 'Unassigned question').slaStatus).toBe(
+      'on_track'
+    );
+  });
+
+  it('marks near-deadline tickets at_risk and finished tickets complete', async () => {
+    await pool.query(`
+      insert into tickets (subject, description, status, priority, assignee_id, sla_hours, created_at, updated_at, resolved_at) values
+        ('Almost due', 'Needs attention soon.', 'open', 'high', 1, 4, now() - interval '3 hours', now() - interval '3 hours', null),
+        ('Already fixed', 'Issue was resolved.', 'resolved', 'medium', 1, 8, now() - interval '1 day', now() - interval '1 hour', now() - interval '1 hour'),
+        ('Spam closed', 'Not a real issue.', 'closed', 'low', null, 8, now() - interval '5 days', now() - interval '4 days', null)
+    `);
+
+    const res = await app.inject({ method: 'GET', url: '/tickets' });
+    expect(res.statusCode).toBe(200);
+    const tickets = res.json();
+
+    // Almost due: open, 4h SLA, created 3h ago → ~1h remaining → at_risk
+    expect(tickets.find((t: any) => t.subject === 'Almost due').slaStatus).toBe('at_risk');
+    expect(tickets.find((t: any) => t.subject === 'Already fixed').slaStatus).toBe('complete');
+    expect(tickets.find((t: any) => t.subject === 'Spam closed').slaStatus).toBe('complete');
+  });
+
+  it('filters by a single status', async () => {
+    const res = await app.inject({ method: 'GET', url: '/tickets?status=open' });
+
+    expect(res.statusCode).toBe(200);
+    const tickets = res.json();
+    expect(tickets.map((t: { subject: string }) => t.subject)).toEqual([
+      'Unassigned question',
+      'Printer on fire',
+    ]);
+  });
+
+  it('filters by multiple statuses', async () => {
+    await pool.query(`
+      update tickets set status = 'resolved', resolved_at = now()
+       where subject = 'Slow reports page'
+    `);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/tickets?status=open&status=resolved',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const subjects = res.json().map((t: { subject: string }) => t.subject);
+    expect(subjects).toEqual([
+      'Unassigned question',
+      'Printer on fire',
+      'Slow reports page',
+    ]);
+  });
+
+  it('filters by assigneeId', async () => {
+    const res = await app.inject({ method: 'GET', url: '/tickets?assigneeId=1' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((t: { subject: string }) => t.subject)).toEqual([
+      'Printer on fire',
+    ]);
+  });
+
+  it('filters unassigned tickets with assigneeId=unassigned', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/tickets?assigneeId=unassigned',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((t: { subject: string }) => t.subject)).toEqual([
+      'Unassigned question',
+    ]);
+  });
+
+  it('combines status and assignee filters', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/tickets?status=open&assigneeId=1&assigneeId=unassigned',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((t: { subject: string }) => t.subject)).toEqual([
+      'Unassigned question',
+      'Printer on fire',
+    ]);
+  });
+
+  it('rejects an invalid status filter with 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/tickets?status=nope' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('Validation failed');
+  });
 });
 
 describe('GET /tickets/:id', () => {
@@ -86,11 +196,33 @@ describe('GET /tickets/:id', () => {
     });
   });
 
+  it('includes slaHours and slaStatus on the ticket detail', async () => {
+    const res = await app.inject({ method: 'GET', url: '/tickets/1' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      slaHours: 4,
+      slaStatus: 'at_risk',
+    });
+  });
+
   it('returns 404 for an unknown ticket', async () => {
     const res = await app.inject({ method: 'GET', url: '/tickets/999' });
 
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: 'Ticket 999 not found' });
+  });
+});
+
+describe('GET /users', () => {
+  it('returns all users with id and name', async () => {
+    const res = await app.inject({ method: 'GET', url: '/users' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([
+      { id: 1, name: 'Ada Fixture' },
+      { id: 2, name: 'Grace Fixture' },
+    ]);
   });
 });
 

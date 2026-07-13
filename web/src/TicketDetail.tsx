@@ -42,6 +42,14 @@ export function TicketDetail({ id }: { id: number }) {
         <dd>{ticket.priority}</dd>
         <dt>Assignee</dt>
         <dd>{ticket.assigneeName ?? '—'}</dd>
+        <dt>SLA hours</dt>
+        <dd>{ticket.slaHours}</dd>
+        <dt>SLA</dt>
+        <dd>
+          <span className={`badge sla-${ticket.slaStatus}`}>
+            {ticket.slaStatus.replace('_', ' ')}
+          </span>
+        </dd>
         <dt>Created</dt>
         <dd>{formatDate(ticket.createdAt)}</dd>
       </dl>
